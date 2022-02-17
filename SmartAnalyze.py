@@ -2,7 +2,7 @@
 """
 File: SmartAnalyze.py
 Created on Sun Jun 28 20:24:24 2020
-Author: Difang Huang 黄狄昉
+Author: Difang Huang
 
 README:
    Introduction
@@ -166,6 +166,8 @@ README:
     ---------------------------------------------------------------------------
     Mon Jun 29 16:10:18 2020 v0.0
         Creat SmartAnalyze.py file.
+    Wed Feb 17 19:44:00 2021 v0.1
+        Change getCTestNorms() to testNorms()
         
 """
 
@@ -224,22 +226,21 @@ def SmartAnalyzeTransient(dt, npts, ud=''):
     current['segs']=npts
     
     # divide the whole process into segments.
-    #把时程按照数据点分为各个小段seg进行分析
     for seg in range(1,npts+1):
         ok=RecursiveAnalyze(control['initialStep'],0,control['testIterTimes'],control['testTol'],control,current)
-        #如果递归后不收敛，跳出函数，显示分析失败和用时
+        # if not converge, break the loop and print information.
         if ok<0:
             print(">>> SmartAnalyze: Analyze failed. Time consumption: %f s." %(time.time()-current['startTime']))
             return ok
         
-        #该数据点分析收敛，更新成功分析的点数
+        # converged, update progress
         current['progress']=seg
         
-        #显示实时成功分析的过程占总过程的百分比
+        # show progress
         if control['debugMode']:
             print("*** SmartAnalyze: progress %f" %(current['progress']/current['segs']))
     
-    #全部数据点分析成功，显示分析成功和用时
+    # the analysis is done.
     print(">>> SmartAnalyze: Successfully finished! Time consumption: %f s." %(time.time()-current['startTime']))
 
 
@@ -306,51 +307,48 @@ def SmartAnalyzeStatic(node, dof, maxStep, targets, ud=''):
     
     # calcuate whole distance; divide the whole process into segments.
     distance=0
-    segs=[]                                          #把整个加载过程分解为长度不超过maxStep的，带正负方向的小加载段
-    for i in range(len(targets)):                    #目标位移列表循环
-        if i==0:                                     #第一段位移
-            section=targets[0]                       #推覆位移直接就是列表第一个位移
-            positive=True                            #正向 
-        else:                                        #非第一段位移
-            section=targets[i]-targets[i-1]          #推覆位移为目标位移减去上一段目标位移
-            if section>=0:                           #若大于零为正向推
+    segs=[]                                          # Divide the protocol to small segments
+    for i in range(len(targets)):                    
+        if i==0:                                     # The first disp segment is always in the positive direction.
+            section=targets[0]                       
+            positive=True                            
+        else:                                        
+            section=targets[i]-targets[i-1]          
+            if section>=0:                           
                 positive=True           
-            else:                                    #若小于零为负向推
+            else:                                    
                 positive=False
         
-        distance=distance+abs(section)               #所推的绝对位移总和，section为每次单推的距离
+        distance=distance+abs(section)               # distance, used to calculate progress.
         
-        if positive:                                 #若目前处于正向加载
+        if positive:                                 
             j=0
-            while (section-j*maxStep)>maxStep:       #把本段推覆位移分为长度为maxStep的各个小段，存于列表segs中
+            while (section-j*maxStep)>maxStep:       # divide the current protocol to segments
                 segs.append(maxStep)
                 j+=1
-            segs.append(section-j*maxStep)           #最后一小段不足maxStep的也存于segs
+            segs.append(section-j*maxStep)           # The last segment.
             
-        else:                                        #若目前处于负向加载
+        else:                                        
             j=0
-            while (-section-j*maxStep)>maxStep:      #把本段推覆位移分为长度为maxStep的各个小段，存于列表segs中
+            while (-section-j*maxStep)>maxStep:      
                 segs.append(-maxStep)
                 j+=1
-            segs.append(section+j*maxStep)           #最后一小段不足maxStep的也存于segs
+            segs.append(section+j*maxStep)           
     
-    current['segs']=len(segs)                        #整个加载过程中所有小加载段的个数
+    current['segs']=len(segs)                        
     
     # Run recursive analysis
-    #对每个小加载段进行计算
     for seg in segs:
         ok=RecursiveAnalyze(seg, 0, control['testIterTimes'], control['testTol'], control, current)
-        if ok<0:               #若不收敛，跳出函数并显示用时
+        if ok<0:               
             print(">>> SmartAnalyze: Analyze failed. Time consumption: %f s." %(time.time()-current['startTime']))
             return ok
-        #收敛，成功分析的过程数+1
+        # converge
         current['progress']+=1
         
-        #显示成功分析的过程数占总的加载段数的百分比
         if control['debugMode']:
             print("*** SmartAnalyze: progress %f" %(current['progress']/current['segs']))
-    
-    #全部加载段分析完成，显示成功完成分析和用时
+
     print(">>> SmartAnalyze: Successfully Finished! Time consumption: %f s." %(time.time()-current['startTime']))
     
     
@@ -360,12 +358,12 @@ def SmartAnalyzeStatic(node, dof, maxStep, targets, ud=''):
 
 def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent):
     '''
-    step: 步长，动力分析为dt; 静力分析为小加载段的位移，<=maxStep
-    algoIndex: 初始迭代方法列表的序号，一般从第一个开始，即为0
-    testIterTimes: 迭代次数，默认为7
-    testTol: 迭代容差，默认为1.0e-6
-    vcontrol: 控制参数字典
-    vcurrent: 状态参数字典
+    step: dt for transient analysis, and a displacement step length for static analysis.
+    algoIndex: Algorithm index that is used.
+    testIterTimes: Maximum nunmber of tests.
+    testTol: test tolarence.
+    vcontrol: control variables
+    vcurrent: current control variables
     '''
     control=vcontrol
     current=vcurrent
@@ -376,19 +374,19 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
     print(current)
     print('\n')
     
-    #输出本次分析的参数
+    # print the control parameters
     if control['debugMode']:
         print("*** SmartAnalyze: Run Recursive: step=%f, algoI=%i, times=%i, tol=%f" %(step, algoIndex, testIterTimes, testTol))
         print('\n')
     
-    #改变迭代方法
+    # switch algorithm
     if algoIndex!=current['algoIndex']:
         print(">>> SmartAnalyze: Setting algorithm to %i" %(control['algoTypes'][algoIndex]))
         print('\n')
         setAlgorithm(control['algoTypes'][algoIndex])
         current['algoIndex']=algoIndex
     
-    #变化迭代次数和容差
+    # change number of tests and tolerance
     if testIterTimes!=current['testIterTimes'] or testTol!=current['testTol']:
         if testIterTimes!=current['testIterTimes']:
             print(">>> SmartAnalyze: Setting test iteration times to %i" %(testIterTimes))
@@ -401,7 +399,7 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
             
         test(control['testType'], testTol, testIterTimes, control['testPrintFlag'])
     
-    #静力分析修改步长
+    # change step length
     if control['analysis']=='Static' and current['step']!=step:
         print(">>> SmartAnalyze: Setting step to %f" %(step))
         print('\n')
@@ -409,19 +407,14 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
         current['step']=step
     
     # trial analyze once
-    #静力分析
     if control['analysis']=='Static':
         ok=analyze(1)
-    #动力分析
     else:
         ok=analyze(1, step)
     
-    #单次分析次数记录
     current['counter']+=1
     
-    #分析收敛 跳出函数 开始下一小段的计算
     if ok==0:
-        #满指定次数就输出完成百分比和用时
         if current['counter']>=control['printPer']:
             print("* SmartAnalyze: progress %f. Time consumption: %f s." 
                   %(current['progress']/current['segs'], (time.time()-current['startTime'])/1000.0))
@@ -429,23 +422,21 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
             current['counter']=0
         return 0
     
-    # 分析不收敛 开始改变参数递归
+    # not converge, start to search for a solution.
     # Add test iteration times. Use current step, algorithm and test tolerance.
     if control['tryAddTestTimes'] and testIterTimes!=control['testIterTimesMore']:
-        #检查范数
-        norm=getCTestNorms()
-        #如果范数小于规定值，增加迭代次数，其他参数不变，本函数递归
+        norm=testNorms()
+        # if current norm is close to converge, add the number of tests.
         if norm[-1]<control['normTol']:
             print(">>> SmartAnalyze: Adding test times to %i." %(control['testIterTimesMore']))
             print('\n')
             return RecursiveAnalyze(step, algoIndex, control['testIterTimesMore'], testTol, control, current)
-        #如果范数大于规定值，不增加
+        # if current norm is too large, try another way.
         else:
             print(">>> SmartAnalyze: Not adding test times for norm %f" %(norm[-1]))
             print('\n')
     
     # Change algorithm. Set back test iteration times.
-    # 如果迭代方法序号还没超 尝试下一种迭代方法
     if control['tryAlterAlgoTypes'] and (algoIndex+1)<len(control['algoTypes']):
         algoIndex+=1
         print(">>> SmartAnalyze: Setting algorithm to  %i." %(control['algoTypes'][algoIndex]))
