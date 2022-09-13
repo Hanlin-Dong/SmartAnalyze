@@ -590,7 +590,7 @@ def setAlgorithm(algotype):
     
     
     switch={'0':case0, '1':case1, '2':case2, '10':case10,'11':case11, '12':case12,
-            '20':case20, '21':case21, '21':case21, '23':case23,
+            '20':case20, '21':case21, '22':case22, '23':case23,
             '30':case30, '31':case31, '40':case40, '41':case41, '42':case42, '43':case43, '44':case44, '45':case45,
             '50':case50, '51':case51,'52':case52,'53':case53, '60':case60, '70':case70, '80':case80, '90':case90, 'default':default}
     
