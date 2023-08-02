@@ -2,7 +2,7 @@
 """
 File: SmartAnalyze.py
 Created on Sun Jun 28 20:24:24 2020
-Author: Difang Huang
+Author: Difang Huang, Hanlin Dong
 
 README:
    Introduction
@@ -125,7 +125,8 @@ README:
                             If step length is smaller than minStep, special ways to converge the model will be used according to `try-` flags.
     
     LOGGING RELATED:
-        `printPer`        : integer. Print to the console every several trials. Default is 10.
+        `printPer`        : integer. Print to the console every several trials. Default is 10. 
+                            If `tqdm` is installed (packed in anaconda) defaults to 0 (use progress bar instead).
         `debugMode`       : boolean. Print as much information as possible.
     
     Algorithm type flag reference
@@ -168,14 +169,27 @@ README:
         Creat SmartAnalyze.py file.
     Wed Feb 17 19:44:00 2021 v0.1
         Change getCTestNorms() to testNorms()
-        
+    Sun Feb 18 15:00:00 2023 v4.0.3
+        Improve output. Add a progress bar. 
+        Make version compatible to the tcl code.
 """
 
-from openseespy.opensees import * 
+version = "4.0.3"
+
+import openseespy.opensees as ops 
 import time
 
+has_tqdm = True
+try:
+    from tqdm import tqdm
+except ImportError:
+    print("""Warning: python module `tqdm` is not installed.""")
+    has_tqdm = False
 
-def SmartAnalyzeTransient(dt, npts, ud=''):
+    def tqdm(x, **kwargs):
+        return x
+
+def SmartAnalyzeTransient(dt, npts, ud=None):
     '''
     dt: delta t
     npts: number of points
@@ -198,22 +212,22 @@ def SmartAnalyzeTransient(dt, npts, ud=''):
     control['initialStep']=dt
     control['relaxation']=0.5
     control['minStep']=1.0e-6
-    control['printPer']=10
+    control['printPer']=10 if not has_tqdm else 0
     control['debugMode']=False
     
     # set user control parameters
-    if ud!='':
+    if ud is not None:
         userControl=ud                                      
         control.update(userControl)
-    
+    printBanner()
     print("Control parameters:")
     for key,value in control.items():
         print(key, value)
     
     # initialize analyze commands
-    test(control['testType'],control['testTol'],control['testIterTimes'],control['testPrintFlag'])
+    ops.test(control['testType'],control['testTol'],control['testIterTimes'],control['testPrintFlag'])
     setAlgorithm(control['algoTypes'][0])
-    analysis('Transient')
+    ops.analysis('Transient')
     
     # set an array to store current status.
     current={}
@@ -226,7 +240,7 @@ def SmartAnalyzeTransient(dt, npts, ud=''):
     current['segs']=npts
     
     # divide the whole process into segments.
-    for seg in range(1,npts+1):
+    for seg in tqdm(range(1,npts+1), desc="SmartAnalysisProgress", position=0):
         ok=RecursiveAnalyze(control['initialStep'],0,control['testIterTimes'],control['testTol'],control,current)
         # if not converge, break the loop and print information.
         if ok<0:
@@ -275,23 +289,23 @@ def SmartAnalyzeStatic(node, dof, maxStep, targets, ud=''):
     control['initialStep']=initialStep
     control['relaxation']=0.5
     control['minStep']=1.0e-6
-    control['printPer']=10
+    control['printPer']=10 if not has_tqdm else 0
     control['debugMode']=False
     
     # set user control parameters
     if ud!='':
         userControl=ud
         control.update(userControl)
-    
+    printBanner()
     print("Control parameters:")
     for key,value in control.items():
         print(key, value)
     
     # initialize analyze commands
-    test(control['testType'],control['testTol'],control['testIterTimes'],control['testPrintFlag'])
+    ops.test(control['testType'],control['testTol'],control['testIterTimes'],control['testPrintFlag'])
     setAlgorithm(control['algoTypes'][0])
-    integrator('DisplacementControl', node, dof, initialStep)
-    analysis('Static')
+    ops.integrator('DisplacementControl', node, dof, initialStep)
+    ops.analysis('Static')
     
     # set an array to store current status.
     current={}
@@ -338,7 +352,7 @@ def SmartAnalyzeStatic(node, dof, maxStep, targets, ud=''):
     current['segs']=len(segs)                        
     
     # Run recursive analysis
-    for seg in segs:
+    for seg in tqdm(segs, desc="SmartAnalysisProgress", position=0):
         ok=RecursiveAnalyze(seg, 0, control['testIterTimes'], control['testTol'], control, current)
         if ok<0:               
             print(">>> SmartAnalyze: Analyze failed. Time consumption: %f s." %(time.time()-current['startTime']))
@@ -368,11 +382,12 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
     control=vcontrol
     current=vcurrent
     
-    print('CONTROL PARAMETERS:')
-    print(control)
-    print('CURRENT STATE PARAMETERS:')
-    print(current)
-    print('\n')
+    if control['debugMode']:
+        print('CONTROL PARAMETERS:')
+        print(control)
+        print('CURRENT STATE PARAMETERS:')
+        print(current)
+        print('\n')
     
     # print the control parameters
     if control['debugMode']:
@@ -397,27 +412,27 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
             print('\n')
             current['testTol']=testTol
             
-        test(control['testType'], testTol, testIterTimes, control['testPrintFlag'])
+        ops.test(control['testType'], testTol, testIterTimes, control['testPrintFlag'])
     
     # change step length
     if control['analysis']=='Static' and current['step']!=step:
-        print(">>> SmartAnalyze: Setting step to %f" %(step))
-        print('\n')
-        integrator('DisplacementControl', current['node'], current['dof'], step)
+        # print(">>> SmartAnalyze: Setting step to %f" %(step))
+        # print('\n')
+        ops.integrator('DisplacementControl', current['node'], current['dof'], step)
         current['step']=step
     
     # trial analyze once
     if control['analysis']=='Static':
-        ok=analyze(1)
+        ok=ops.analyze(1)
     else:
-        ok=analyze(1, step)
+        ok=ops.analyze(1, step)
     
     current['counter']+=1
     
     if ok==0:
-        if current['counter']>=control['printPer']:
+        if control['printPer'] != 0 and current['counter']>=control['printPer']:
             print("* SmartAnalyze: progress %f. Time consumption: %f s." 
-                  %(current['progress']/current['segs'], (time.time()-current['startTime'])/1000.0))
+                %(current['progress']/current['segs'], (time.time()-current['startTime'])/1000.0))
             print('\n')
             current['counter']=0
         return 0
@@ -425,7 +440,7 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
     # not converge, start to search for a solution.
     # Add test iteration times. Use current step, algorithm and test tolerance.
     if control['tryAddTestTimes'] and testIterTimes!=control['testIterTimesMore']:
-        norm=testNorms()
+        norm=ops.testNorms()
         # if current norm is close to converge, add the number of tests.
         if norm[-1]<control['normTol']:
             print(">>> SmartAnalyze: Adding test times to %i." %(control['testIterTimesMore']))
@@ -479,107 +494,107 @@ def RecursiveAnalyze(step, algoIndex, testIterTimes, testTol, vcontrol, vcurrent
 
 def setAlgorithm(algotype):
     '''
-    
+        Predefine some algorithms.
     '''
     def case0():
         print("> SmartAnalyze: Setting algorithm to  Linear ...")
-        algorithm('Linear')
+        ops.algorithm('Linear')
     
     def case1():
         print("> SmartAnalyze: Setting algorithm to  Linear -initial ...")
-        algorithm('Linear', initial=True)
+        ops.algorithm('Linear', initial=True)
     
     def case2():
         print("> SmartAnalyze: Setting algorithm to  Linear -factorOnce ...")
-        algorithm('Linear', factorOnce=True)
+        ops.algorithm('Linear', factorOnce=True)
         
     def case10():
         print("> SmartAnalyze: Setting algorithm to  Newton ...")
-        algorithm('Newton')
+        ops.algorithm('Newton')
     
     def case11():
         print("> SmartAnalyze: Setting algorithm to  Newton -initial ...")
-        algorithm('Newton', initial=True)
+        ops.algorithm('Newton', initial=True)
     
     def case12():
         print("> SmartAnalyze: Setting algorithm to  Newton -initialThenCurrent ...")
-        algorithm('Newton', initialThenCurrent=True)
+        ops.algorithm('Newton', initialThenCurrent=True)
     
     def case20():
         print("> SmartAnalyze: Setting algorithm to  NewtonLineSearch ...")
-        algorithm('NewtonLineSearch')
+        ops.algorithm('NewtonLineSearch')
     
     def case21():
         print("> SmartAnalyze: Setting algorithm to  NewtonLineSearch -type Bisection ...")
-        algorithm('NewtonLineSearch', True)
+        ops.algorithm('NewtonLineSearch', True)
     
     def case22():
         print("> SmartAnalyze: Setting algorithm to  NewtonLineSearch -type Secant ...")
-        algorithm('NewtonLineSearch', Secant=True)
+        ops.algorithm('NewtonLineSearch', Secant=True)
     
     def case23():
         print("> SmartAnalyze: Setting algorithm to  NewtonLineSearch -type RegulaFalsi ...")
-        algorithm('NewtonLineSearch', RegulaFalsi=True)
+        ops.algorithm('NewtonLineSearch', RegulaFalsi=True)
     
     def case30():
         print("> SmartAnalyze: Setting algorithm to  Modified Newton ...")
-        algorithm('ModifiedNewton')
+        ops.algorithm('ModifiedNewton')
     
     def case31():
         print("> SmartAnalyze: Setting algorithm to  ModifiedNewton -initial ...")
-        algorithm('ModifiedNewton', False, True)
+        ops.algorithm('ModifiedNewton', False, True)
     
     def case40():
         print("> SmartAnalyze: Setting algorithm to  KrylovNewton ...")
-        algorithm('KrylovNewton')
+        ops.algorithm('KrylovNewton')
     
     def case41():
         print("> SmartAnalyze: Setting algorithm to  KrylovNewton -iterate initial ...")
-        algorithm('KrylovNewton', iterate='initial')
+        ops.algorithm('KrylovNewton', iterate='initial')
     
     def case42():
         print("> SmartAnalyze: Setting algorithm to  KrylovNewton -increment initial ...")
-        algorithm('KrylovNewton', increment='initial')
+        ops.algorithm('KrylovNewton', increment='initial')
     
     def case43():
         print("> SmartAnalyze: Setting algorithm to  KrylovNewton -iterate initial -increment initial ...")
-        algorithm('KrylovNewton', iterate='initial', increment='initial')
+        ops.algorithm('KrylovNewton', iterate='initial', increment='initial')
     
     def case44():
         print("> SmartAnalyze: Setting algorithm to  KrylovNewton -maxDim 50")
-        algorithm('KrylovNewton', maxDim=50)
+        ops.algorithm('KrylovNewton', maxDim=50)
     
     def case45():
         print("> SmartAnalyze: Setting algorithm to  KrylovNewton -iterate initial -increment initial -maxDim 50")
-        algorithm('KrylovNewton', iterate='initial', increment='initial', maxDim=50)
+        ops.algorithm('KrylovNewton', iterate='initial', increment='initial', maxDim=50)
     
     def case50():
         print("> SmartAnalyze: Setting algorithm to  SecantNewton ...")
-        algorithm('SecantNewton')
+        ops.algorithm('SecantNewton')
 
     def case51():
         print("> SmartAnalyze: Setting algorithm to  SecantNewton -iterate initial ...")
-        algorithm('SecantNewton', iterate='initial')
+        ops.algorithm('SecantNewton', iterate='initial')
     
     def case52():
         print("> SmartAnalyze: Setting algorithm to  SecantNewton -increment initial  ...")
-        algorithm('SecantNewton', increment='initial')
+        ops.algorithm('SecantNewton', increment='initial')
     
     def case53():
         print("> SmartAnalyze: Setting algorithm to  SecantNewton -iterate initial -increment initial ...")
-        algorithm('SecantNewton', iterate='initial', increment='initial')
+        ops.algorithm('SecantNewton', iterate='initial', increment='initial')
     
     def case60():
         print("> SmartAnalyze: Setting algorithm to  BFGS ...")
-        algorithm('BFGS')
+        ops.algorithm('BFGS')
     
     def case70():
         print("> SmartAnalyze: Setting algorithm to  Broyden ...")
-        algorithm('Broyden')
+        ops.algorithm('Broyden')
     
     def case80():
         print("> SmartAnalyze: Setting algorithm to  PeriodicNewton ...")
-        algorithm('PeriodicNewton')
+        ops.algorithm('PeriodicNewton')
     
     def case90():
         #UserAlgorithm0
@@ -598,16 +613,24 @@ def setAlgorithm(algotype):
     switch.get(choice, default)()
     
 
-
-
-
-
-
-
-
-
-
-
+def printBanner():
+    print(""" ********************************************************************** "
+ *                           WELCOME TO                               * "
+ *  _____                      _    ___              _                * "
+ * /  ___|                    | |  / _ \\            | |               * "
+ * \\ `--. _ __ ___   __ _ _ __| |_/ /_\\ \\_ __   __ _| |_   _ _______  * "
+ *  `--. \\ '_ ` _ \\ / _` | '__| __|  _  | '_ \\ / _` | | | | |_  / _ \\ * "
+ * /\\__/ / | | | | | (_| | |  | |_| | | | | | | (_| | | |_| |/ /  __/ * "
+ * \\____/|_| |_| |_|\\__,_|_|   \\__\\_| |_/_| |_|\\__,_|_|\\__, /___\\___| * "
+ *                                                      __/ |         * "
+ *                                                     |___/          * "
+ * Author: Hanlin DONG (http://www.hanlindong.com)                    * "
+ * License: MIT (https://opensource.org/licenses/MIT).                * "
+ ********************************************************************** "
+Smart Analyze version %s loaded. Enjoy!"
+For transient analyze, call SmartAnalyzeTransient dt npts"
+For static analyze, call SmartAnalyzeStatic node dof targets maxStep"
+""" % version)
 
 
 
